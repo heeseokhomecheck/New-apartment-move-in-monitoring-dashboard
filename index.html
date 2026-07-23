@@ -1,3 +1,11 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>홈체크 입주물량·미분양 모니터</title>
+</head>
+<body>
 <style>
 :root{
   --bg:#fff; --panel:#fff; --panel2:#f4f4f4; --ink:#171a20; --sub:#5c5e62; --faint:#a2a4a8;
@@ -54,7 +62,7 @@
 .hc .monthsel select{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 
 /* 요약 */
-.hc .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.hc .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
 .hc .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 18px}
 .hc .card .k{color:var(--sub);font-size:10.5px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px;
   text-transform:uppercase;letter-spacing:.07em}
@@ -80,6 +88,7 @@
 .hc .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;user-select:none;
   border:1px solid var(--line);border-radius:999px;padding:8px 14px}
 .hc .chk input{accent-color:var(--rausch);width:15px;height:15px}
+.hc .divider{width:1px;height:22px;background:var(--line);margin:0 3px}
 
 /* 리스트(카드형 행) */
 .hc .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
@@ -136,14 +145,23 @@
   <div class="cards" id="cards"></div>
 
   <div class="bar">
+    <div class="chips" id="kindChips">
+      <button class="chip on" data-k="분양">분양</button>
+      <button class="chip" data-k="임대">임대</button>
+      <button class="chip" data-k="">분양+임대</button>
+    </div>
+    <span class="divider"></span>
     <div class="chips" id="statusChips">
       <button class="chip on" data-s="">전체</button>
       <button class="chip crit" data-s="미분양의심">미분양</button>
       <button class="chip good" data-s="완판">완판</button>
     </div>
     <select class="sel" id="regionSel"><option value="">전지역</option></select>
+    <select class="sel" id="sortSel">
+      <option value="pot">물량순</option>
+      <option value="region">지역순</option>
+    </select>
     <input type="search" id="q" placeholder="단지명·별칭 검색">
-    <label class="chk"><input type="checkbox" id="rentChk"> 임대 포함</label>
   </div>
 
   <div class="panel" id="panel"></div>
@@ -158,16 +176,22 @@ const esc = s => (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const fmtMon = k => { if(k==='미정')return '입주월 미정'; const[y,m]=k.split('-'); return y+'년 '+(+m)+'월'; };
 document.getElementById('updated').textContent = '갱신 ' + (PAYLOAD.gen||'') + ' · 전국 ' + fmt(RECS.length) + '개 단지';
 
-const state = {status:'', region:'', q:'', rent:false, mi:0};
+const state = {status:'', region:'', q:'', kind:'분양', sort:'pot', mi:0};
 
-// 지역 옵션
-[...new Set(RECS.map(r=>r.rg).filter(Boolean))].sort().forEach(rg=>{
+// 지역 표시 순서(대표님 지정)
+const REGION_ORDER=['서울','경기','부산','대구','인천','대전','울산','세종','전남','광주',
+                    '강원','충북','충남','전북','경북','경남','제주'];
+const rIdx = rg => { const i=REGION_ORDER.indexOf(rg); return i<0?99:i; };
+
+// 지역 옵션(지정 순서대로)
+const REGIONS=[...new Set(RECS.map(r=>r.rg).filter(Boolean))].sort((a,b)=>rIdx(a)-rIdx(b)||a.localeCompare(b));
+REGIONS.forEach(rg=>{
   const o=document.createElement('option');o.value=rg;o.textContent=rg;regionSel.appendChild(o);
 });
 
 // 사전점검월 목록(대상 기준, 정렬). 미정은 맨 뒤.
 const MONTHS = (()=>{
-  const s=new Set(RECS.filter(r=>r.lc!=='공공임대제외').map(r=>r.sy));
+  const s=new Set(RECS.map(r=>r.sy));
   const a=[...s].filter(x=>x!=='미정').sort();
   if(s.has('미정')) a.push('미정');
   return a;
@@ -178,9 +202,11 @@ if(state.mi<0) state.mi=0;
 
 const norm = s => (s||'').replace(/\s|[()]/g,'').toLowerCase();
 function passFilter(r){
+  const isRent = r.lc==='공공임대제외';
+  if(state.kind==='분양' && isRent) return false;      // 분양만
+  if(state.kind==='임대' && !isRent) return false;      // 임대만
   if(state.status && r.ss!==state.status) return false;
   if(state.region && r.rg!==state.region) return false;
-  if(!state.rent && r.lc==='공공임대제외') return false;
   if(state.q){ const q=norm(state.q); if(!(norm(r.n)+' '+r.al.map(norm).join(' ')).includes(q)) return false; }
   return true;
 }
@@ -216,24 +242,29 @@ function render(){
   nextM.disabled = state.mi>=MONTHS.length-1;
 
   const inMonth = RECS.filter(r=>r.sy===mon);
-  const rows = inMonth.filter(passFilter).sort((a,b)=>b.ph-a.ph);
-  // 숨겨진 임대(구분표시)
+  const volOf = r => r.lc==='공공임대제외' ? r.th : r.ph;   // 임대는 세대수, 분양은 잠재물량
+  const rows = inMonth.filter(passFilter).sort((a,b)=>
+    state.sort==='region' ? (rIdx(a.rg)-rIdx(b.rg) || volOf(b)-volOf(a)) : (volOf(b)-volOf(a)));
+  // '분양'만 볼 때 숨겨진 임대 세대(참고 표시)
   let rentTot=0;
-  if(!state.rent) inMonth.forEach(r=>{ if(r.lc==='공공임대제외' && (!state.region||r.rg===state.region)) rentTot+=r.th; });
+  if(state.kind==='분양') inMonth.forEach(r=>{ if(r.lc==='공공임대제외' && (!state.region||r.rg===state.region)) rentTot+=r.th; });
 
-  const tgt=rows.filter(r=>r.lc!=='공공임대제외');
-  const pot=tgt.reduce((a,r)=>a+r.ph,0);
-  const mis=tgt.filter(r=>r.ss==='미분양의심');
-  const sold=tgt.filter(r=>r.ss==='완판');
+  const isRentView = state.kind==='임대';
+  const vol = rows.reduce((a,r)=>a+volOf(r),0);
+  const mis = rows.filter(r=>r.ss==='미분양의심');
+  const sold= rows.filter(r=>r.ss==='완판');
+  // 이달 예정 입주 총물량 = 분양 + 임대 = 그 달 전체 입주세대(지역필터만 반영)
+  const totalIpju=inMonth.filter(r=>!state.region||r.rg===state.region).reduce((a,r)=>a+(r.th||0),0);
   cards.innerHTML=`
-    <div class="card hero"><div class="k">🎯 이달 홈체크 잠재물량</div><div class="v">${fmt(pot)}<small>세대</small></div></div>
-    <div class="card"><div class="k">사전점검 대상 단지</div><div class="v">${fmt(tgt.length)}<small>단지</small></div></div>
+    <div class="card hero"><div class="k">${isRentView?'이달 임대 세대':'🎯 이달 홈체크 잠재물량'}</div><div class="v">${fmt(vol)}<small>세대</small></div></div>
+    <div class="card"><div class="k">${isRentView?'임대 단지':'사전점검 대상 단지'}</div><div class="v">${fmt(rows.length)}<small>단지</small></div></div>
     <div class="card"><div class="k"><span class="dot crit"></span>미분양의심</div><div class="v">${fmt(mis.length)}<small>단지</small></div></div>
-    <div class="card"><div class="k"><span class="dot good"></span>완판</div><div class="v">${fmt(sold.length)}<small>단지</small></div></div>`;
+    <div class="card"><div class="k"><span class="dot good"></span>완판</div><div class="v">${fmt(sold.length)}<small>단지</small></div></div>
+    <div class="card"><div class="k">이달 예정 입주 총물량</div><div class="v">${fmt(totalIpju)}<small>세대</small></div></div>`;
 
   if(!rows.length){ panel.innerHTML='<div class="empty">이 달에 조건에 맞는 단지가 없습니다.</div>'; }
   else{
-    const head='<div class="thead"><span>단지명 / 별칭</span><span>지역</span><span>유형</span><span class="num">총세대</span><span class="num">🎯 잠재물량</span><span>판매상태</span></div>';
+    const head='<div class="thead"><span>단지명 / 별칭</span><span>지역</span><span>유형</span><span class="num">총세대</span><span class="num">'+(isRentView?'임대세대':'🎯 잠재물량')+'</span><span>판매상태</span></div>';
     const body=rows.map(r=>{
       const cls=r.ss==='미분양의심'?'crit':'';
       const rate=r.ss==='완판'&&r.cx?'<span class="rate">'+r.cx+':1</span>':'';
@@ -245,13 +276,13 @@ function render(){
         <div class="thin hide-sm">${esc(r.rg)}</div>
         <div class="hide-sm">${typeTag(r)}</div>
         <div class="num thin hide-sm">${fmt(r.th)}</div>
-        <div class="num r-pot"><span class="pot">${r.ph?fmt(r.ph):'—'}</span>${approx}</div>
+        <div class="num r-pot"><span class="pot">${volOf(r)?fmt(volOf(r)):'—'}</span>${approx}</div>
         <div class="r-status">${pill(r.ss)}${rate}</div>
       </div>`;
     }).join('');
     panel.innerHTML=head+body;
   }
-  foot.innerHTML=`이 달 표시 <b>${fmt(rows.length)}</b>단지${rentTot?` · 공공임대 <b>${fmt(rentTot)}</b>세대 제외(임대 포함 체크로 보기)`:''}.<br>`+
+  foot.innerHTML=`이 달 표시 <b>${fmt(rows.length)}</b>단지${rentTot?` · 공공임대 <b>${fmt(rentTot)}</b>세대 별도(<b>임대</b> 탭에서 보기)`:''}.<br>`+
     `잠재물량 = <b>총세대 − 공공임대</b>. 일반분양·조합·민간임대·토지임대부 <b>전부 포함</b>, 행복주택·영구·국민·공공임대·청년만 제외. `+
     `배지: <b>완판</b>=신청≥공급 · <b>경합</b>=50%↑ · <b>미분양의심</b>=50%미만 · <b>—</b>=경쟁률없음. <b>⚠</b>=출처별 입주월 상이(늦은쪽·확인요).`;
 }
@@ -262,10 +293,15 @@ nextM.onclick=()=>move(1);
 monthSel.onchange=e=>{state.mi=+e.target.value;render();};
 statusChips.onclick=e=>{const b=e.target.closest('.chip');if(!b)return;state.status=b.dataset.s;
   [...statusChips.children].forEach(x=>x.classList.toggle('on',x===b));render();};
+kindChips.onclick=e=>{const b=e.target.closest('.chip');if(!b)return;state.kind=b.dataset.k;
+  [...kindChips.children].forEach(x=>x.classList.toggle('on',x===b));render();};
 regionSel.onchange=e=>{state.region=e.target.value;render();};
-rentChk.onchange=e=>{state.rent=e.target.checked;render();};
+sortSel.onchange=e=>{state.sort=e.target.value;render();};
 q.oninput=e=>{state.q=e.target.value;render();};
 
 buildMonthSelect();
 render();
 </script>
+
+</body>
+</html>
