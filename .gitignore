@@ -1,0 +1,48 @@
+# ⚠️ 공개 저장소 — 키/고객데이터 절대 커밋 금지. Action이 매주 자동 갱신.
+
+# 인증키 (절대 금지 — GitHub Secrets로만 관리)
+_apikey.txt
+_hubkey.txt
+_rebkey.txt
+_kosis_key.txt
+.env
+
+# 고객·영업 데이터 (개인정보 — 절대 금지)
+영업*.csv
+*리드*.csv
+대조_*.csv
+
+# 런타임 생성물 (Action이 매번 새로 만듦 — 커밋 불필요)
+reb_ipju.csv
+data_cheongyak.json
+data_chakgong.json
+units.json
+data.js
+data.json
+prototype.html
+프로토타입_보기.html
+share_dashboard.html
+bdong_codes.json
+logs/
+__pycache__/
+*.pyc
+
+# 임시 탐사/보고 파일
+_api_test.json
+_delta_probe.json
+_reb_probe.json
+_excl_list.txt
+
+# 실행 스크립트(로컬 전용)
+run.bat
+update.bat
+update_hidden.vbs
+
+# 미사용/보조 스크립트
+fetch_chakgong.py
+recompute_chakgong.py
+get_bdong.py
+match_tothh.py
+build_sales.py
+compare_sheet.py
+check_api.py
